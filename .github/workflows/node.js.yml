@@ -28,3 +28,9 @@ jobs:
         cache: 'npm'
     - run: npm install
     - run: npm run build
+    
+    - name: Upload artifact for deployment job
+      uses: actions/upload-artifact@v4
+      with:
+        name: node-app
+        path: ./dist
