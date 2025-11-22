@@ -1,0 +1,5 @@
+{
+  "name": "Solitaire",
+  "description": "A classic Klondike Solitaire game.",
+  "requestFramePermissions": []
+}
