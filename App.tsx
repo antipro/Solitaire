@@ -387,7 +387,8 @@ const App: React.FC = () => {
                       const faceDownCount = prevCards.filter(c => !c.faceUp).length;
                       const faceUpCount = prevCards.filter(c => c.faceUp).length;
                       
-                      const topOffset = `${(faceDownCount * 8) + (faceUpCount * 26)}px`;
+                      // Increased faceUp offset from 26 to 45 to show Rank/Suit
+                      const topOffset = `${(faceDownCount * 8) + (faceUpCount * 45)}px`;
                       
                       return (
                         <div 
