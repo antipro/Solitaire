@@ -8,6 +8,8 @@ interface CardProps {
   isSelected?: boolean;
   className?: string;
   style?: React.CSSProperties;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
 }
 
 // Internal component for Court Cards (Jack, Queen, King)
@@ -81,7 +83,15 @@ const CourtCardVisual = ({ rank, colorClass }: { rank: Rank; colorClass: string 
   return null;
 };
 
-export const Card: React.FC<CardProps> = ({ card, onClick, isSelected, className = '', style }) => {
+export const Card: React.FC<CardProps> = ({ 
+  card, 
+  onClick, 
+  isSelected, 
+  className = '', 
+  style,
+  draggable,
+  onDragStart
+}) => {
   if (!card.faceUp) {
     return (
       <div
@@ -102,34 +112,37 @@ export const Card: React.FC<CardProps> = ({ card, onClick, isSelected, className
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={onDragStart}
       onClick={onClick}
       style={style}
       className={`
-        relative w-full h-full bg-white rounded-lg shadow-md select-none cursor-pointer
+        relative w-full h-full bg-white rounded-lg shadow-md select-none
         transition-transform duration-100 overflow-hidden
         ${isSelected ? 'ring-4 ring-yellow-400 -translate-y-2 shadow-xl z-50' : 'hover:-translate-y-0.5'}
+        ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
         ${colorClass} ${className}
       `}
     >
       {/* Top Left */}
-      <div className="absolute top-1 left-1 flex flex-col items-center leading-none">
-        <span className="font-bold text-sm md:text-lg">{rankLabel}</span>
-        <span className="text-sm md:text-lg">{symbol}</span>
+      <div className="absolute top-1 left-1 md:top-2 md:left-2 flex flex-col items-center leading-none">
+        <span className="font-bold text-xl md:text-3xl tracking-tighter">{rankLabel}</span>
+        <span className="text-xl md:text-3xl">{symbol}</span>
       </div>
 
       {/* Center Content */}
-      <div className="absolute inset-0 flex justify-center items-center p-4 md:p-2">
+      <div className="absolute inset-0 flex justify-center items-center p-4 md:p-6">
         {isCourtCard ? (
           <CourtCardVisual rank={card.rank} colorClass={colorClass} />
         ) : (
-          <span className="text-4xl md:text-6xl opacity-20">{symbol}</span>
+          <span className="text-6xl md:text-8xl opacity-20">{symbol}</span>
         )}
       </div>
 
       {/* Bottom Right (Rotated) */}
-      <div className="absolute bottom-1 right-1 flex flex-col items-center leading-none transform rotate-180">
-        <span className="font-bold text-sm md:text-lg">{rankLabel}</span>
-        <span className="text-sm md:text-lg">{symbol}</span>
+      <div className="absolute bottom-1 right-1 md:bottom-2 md:right-2 flex flex-col items-center leading-none transform rotate-180">
+        <span className="font-bold text-xl md:text-3xl tracking-tighter">{rankLabel}</span>
+        <span className="text-xl md:text-3xl">{symbol}</span>
       </div>
     </div>
   );

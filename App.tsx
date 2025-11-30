@@ -1,9 +1,8 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Card } from './components/Card';
 import { EmptyPile } from './components/EmptyPile';
-import { GameState, Position, CardType, Rank, Suit, Difficulty } from './types';
-import { initGame, isValidTableauMove, isValidFoundationMove, checkWin, createDeck, shuffleDeck } from './utils/solitaire';
+import { GameState, Position, CardType, Rank, Suit, Difficulty, PileType } from './types';
+import { initGame, isValidTableauMove, isValidFoundationMove, checkWin } from './utils/solitaire';
 import { SUITS } from './constants';
 
 // Simple SVG Icons
@@ -20,7 +19,7 @@ const UndoIcon = () => (
 );
 
 const App: React.FC = () => {
-  const [game, setGame] = useState<GameState>(initGame('EASY'));
+  const [game, setGame] = useState<GameState>(() => initGame('EASY'));
   const [selected, setSelected] = useState<Position | null>(null);
   const [history, setHistory] = useState<GameState[]>([]);
 
@@ -69,30 +68,29 @@ const App: React.FC = () => {
     setSelected(null);
   };
 
-  const moveCard = (targetPileType: 'foundation' | 'tableau', targetPileIndex: number) => {
-    if (!selected) return;
-
+  // Core move logic separated from event handling
+  const attemptMove = (source: Position, targetPileType: PileType, targetPileIndex: number): boolean => {
     let sourceCard: CardType | undefined;
     let sourcePile: CardType[] = [];
     
-    if (selected.pileType === 'waste') {
+    if (source.pileType === 'waste') {
       sourcePile = game.waste;
       sourceCard = sourcePile[sourcePile.length - 1];
-    } else if (selected.pileType === 'tableau') {
-      sourcePile = game.tableau[selected.pileIndex];
-      if (selected.cardIndex !== undefined) {
-        sourceCard = sourcePile[selected.cardIndex];
+    } else if (source.pileType === 'tableau') {
+      sourcePile = game.tableau[source.pileIndex];
+      if (source.cardIndex !== undefined) {
+        sourceCard = sourcePile[source.cardIndex];
       }
-    } else if (selected.pileType === 'foundation') {
-       sourcePile = game.foundations[selected.pileIndex];
+    } else if (source.pileType === 'foundation') {
+       sourcePile = game.foundations[source.pileIndex];
        sourceCard = sourcePile[sourcePile.length - 1];
     }
 
-    if (!sourceCard) return;
+    if (!sourceCard) return false;
 
     const cardsToMove: CardType[] = [];
-    if (selected.pileType === 'tableau' && selected.cardIndex !== undefined) {
-      for (let i = selected.cardIndex; i < sourcePile.length; i++) {
+    if (source.pileType === 'tableau' && source.cardIndex !== undefined) {
+      for (let i = source.cardIndex; i < sourcePile.length; i++) {
         cardsToMove.push(sourcePile[i]);
       }
     } else {
@@ -118,18 +116,18 @@ const App: React.FC = () => {
       setGame(prev => {
         const newGame = { ...prev };
         
-        if (selected.pileType === 'waste') {
+        if (source.pileType === 'waste') {
           newGame.waste = newGame.waste.slice(0, -1);
-        } else if (selected.pileType === 'foundation') {
-          newGame.foundations[selected.pileIndex] = newGame.foundations[selected.pileIndex].slice(0, -1);
-        } else if (selected.pileType === 'tableau') {
-          const col = newGame.tableau[selected.pileIndex];
-          const keepCount = selected.cardIndex!;
-          newGame.tableau[selected.pileIndex] = col.slice(0, keepCount);
+        } else if (source.pileType === 'foundation') {
+          newGame.foundations[source.pileIndex] = newGame.foundations[source.pileIndex].slice(0, -1);
+        } else if (source.pileType === 'tableau') {
+          const col = newGame.tableau[source.pileIndex];
+          const keepCount = source.cardIndex!;
+          newGame.tableau[source.pileIndex] = col.slice(0, keepCount);
           
-          if (newGame.tableau[selected.pileIndex].length > 0) {
-            const lastIdx = newGame.tableau[selected.pileIndex].length - 1;
-            newGame.tableau[selected.pileIndex][lastIdx].faceUp = true;
+          if (newGame.tableau[source.pileIndex].length > 0) {
+            const lastIdx = newGame.tableau[source.pileIndex].length - 1;
+            newGame.tableau[source.pileIndex][lastIdx].faceUp = true;
           }
         }
 
@@ -147,10 +145,9 @@ const App: React.FC = () => {
 
         return newGame;
       });
-      setSelected(null);
-    } else {
-      setSelected(null);
+      return true;
     }
+    return false;
   };
 
   const handleCardClick = (pileType: 'waste' | 'foundation' | 'tableau', pileIndex: number, cardIndex?: number) => {
@@ -169,16 +166,22 @@ const App: React.FC = () => {
     }
 
     if (selected) {
+      // Deselect if clicking same card
       if (selected.pileType === pileType && selected.pileIndex === pileIndex && selected.cardIndex === cardIndex) {
         setSelected(null);
         return;
       }
       
+      // Attempt move to clicked location
       if (pileType === 'foundation' || pileType === 'tableau') {
-        moveCard(pileType, pileIndex);
-        return;
+        const success = attemptMove(selected, pileType, pileIndex);
+        if (success) {
+          setSelected(null);
+          return;
+        }
       }
       
+      // If move failed or clicked unrelated pile, change selection
       if (clickedCard && clickedCard.faceUp) {
          setSelected({ pileType, pileIndex, cardIndex });
       } else {
@@ -188,6 +191,39 @@ const App: React.FC = () => {
       if (clickedCard && clickedCard.faceUp) {
         setSelected({ pileType, pileIndex, cardIndex });
       }
+    }
+  };
+
+  // --- Drag and Drop Handlers ---
+
+  const handleDragStart = (e: React.DragEvent, position: Position) => {
+    e.stopPropagation();
+    // Encode position data
+    e.dataTransfer.setData('application/json', JSON.stringify(position));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetPileType: PileType, targetPileIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const data = e.dataTransfer.getData('application/json');
+    if (!data) return;
+
+    try {
+      const source = JSON.parse(data) as Position;
+      if (source.pileType === targetPileType && source.pileIndex === targetPileIndex) return;
+      
+      const success = attemptMove(source, targetPileType, targetPileIndex);
+      if (success) {
+        setSelected(null);
+      }
+    } catch (err) {
+      console.error('Invalid drag data', err);
     }
   };
 
@@ -281,7 +317,7 @@ const App: React.FC = () => {
                       key={card.id} 
                       className="absolute inset-0 shadow-md rounded-lg transition-transform"
                       style={{ 
-                        transform: `translateX(${i * 12}%)`, // Tighter fan on mobile
+                        transform: `translateX(${i * 12}%)`, 
                         zIndex: i 
                       }}
                     >
@@ -289,6 +325,8 @@ const App: React.FC = () => {
                           card={card} 
                           onClick={isTop ? () => handleCardClick('waste', 0) : undefined}
                           isSelected={isTop && selected?.pileType === 'waste'}
+                          draggable={isTop}
+                          onDragStart={(e) => isTop && handleDragStart(e, { pileType: 'waste', pileIndex: 0 })}
                         />
                     </div>
                   );
@@ -303,12 +341,19 @@ const App: React.FC = () => {
 
             {/* Foundations */}
             {game.foundations.map((pile, index) => (
-              <div key={`foundation-${index}`} className="col-span-1 aspect-[2/3]">
+              <div 
+                key={`foundation-${index}`} 
+                className="col-span-1 aspect-[2/3]"
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, 'foundation', index)}
+              >
                 {pile.length > 0 ? (
                   <Card 
                     card={pile[pile.length - 1]}
                     onClick={() => handleCardClick('foundation', index)}
                     isSelected={selected?.pileType === 'foundation' && selected.pileIndex === index}
+                    draggable={true}
+                    onDragStart={(e) => handleDragStart(e, { pileType: 'foundation', pileIndex: index })}
                   />
                 ) : (
                   <EmptyPile 
@@ -324,7 +369,12 @@ const App: React.FC = () => {
           {/* Tableau Area */}
           <div className="grid grid-cols-7 gap-2 md:gap-4 flex-grow pb-20">
             {game.tableau.map((pile, pileIndex) => (
-              <div key={`tableau-${pileIndex}`} className="relative col-span-1 h-full">
+              <div 
+                key={`tableau-${pileIndex}`} 
+                className="relative col-span-1 h-full"
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, 'tableau', pileIndex)}
+              >
                   {pile.length === 0 ? (
                     <div className="aspect-[2/3]">
                       <EmptyPile type="tableau" onClick={() => handleCardClick('tableau', pileIndex)} />
@@ -333,15 +383,10 @@ const App: React.FC = () => {
                     pile.map((card, cardIndex) => {
                       const isSelected = selected?.pileType === 'tableau' && selected.pileIndex === pileIndex && selected.cardIndex === cardIndex;
                       // Dynamic offset based on if card is face up or down to save space
-                      // Face down cards can be tighter
                       const prevCards = pile.slice(0, cardIndex);
                       const faceDownCount = prevCards.filter(c => !c.faceUp).length;
                       const faceUpCount = prevCards.filter(c => c.faceUp).length;
                       
-                      // Compact calculations:
-                      // Face down: 8px spacing
-                      // Face up: 24px spacing (enough to see rank)
-                      // This ensures tall stacks don't run off screen as fast
                       const topOffset = `${(faceDownCount * 8) + (faceUpCount * 26)}px`;
                       
                       return (
@@ -354,6 +399,8 @@ const App: React.FC = () => {
                             card={card}
                             isSelected={isSelected}
                             onClick={() => handleCardClick('tableau', pileIndex, cardIndex)}
+                            draggable={card.faceUp}
+                            onDragStart={(e) => card.faceUp && handleDragStart(e, { pileType: 'tableau', pileIndex: pileIndex, cardIndex: cardIndex })}
                           />
                         </div>
                       );
