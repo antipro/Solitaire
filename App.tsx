@@ -3,6 +3,7 @@ import { Card } from './components/Card';
 import { EmptyPile } from './components/EmptyPile';
 import { GameState, Position, CardType, Rank, Suit, Difficulty, PileType } from './types';
 import { initGame, isValidTableauMove, isValidFoundationMove, checkWin } from './utils/solitaire';
+import { checkSolvability } from './utils/solver';
 import { SUITS } from './constants';
 
 // Simple SVG Icons
@@ -18,14 +19,23 @@ const UndoIcon = () => (
   </svg>
 );
 
+const SolverIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 md:w-6 md:h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+  </svg>
+);
+
 const App: React.FC = () => {
   const [game, setGame] = useState<GameState>(() => initGame('EASY'));
   const [selected, setSelected] = useState<Position | null>(null);
   const [history, setHistory] = useState<GameState[]>([]);
+  const [solverStatus, setSolverStatus] = useState<'IDLE' | 'CHECKING' | 'SOLVABLE' | 'UNSOLVABLE' | 'UNKNOWN'>('IDLE');
 
   const saveHistory = () => {
     const newState = JSON.parse(JSON.stringify(game));
     setHistory(prev => [...prev.slice(-19), newState]);
+    // Reset solver status when state changes
+    setSolverStatus('IDLE');
   };
 
   const undo = () => {
@@ -34,12 +44,21 @@ const App: React.FC = () => {
     setGame(previousState);
     setHistory(prev => prev.slice(0, -1));
     setSelected(null);
+    setSolverStatus('IDLE');
   };
 
   const handleNewGame = (difficulty: Difficulty = game.difficulty) => {
     setGame(initGame(difficulty));
     setSelected(null);
     setHistory([]);
+    setSolverStatus('IDLE');
+  };
+
+  const handleCheckSolvability = async () => {
+    if (game.gameWon) return;
+    setSolverStatus('CHECKING');
+    const result = await checkSolvability(game);
+    setSolverStatus(result);
   };
 
   const handleDeckClick = () => {
@@ -267,8 +286,33 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* Solver Status Display */}
+        {solverStatus !== 'IDLE' && (
+           <div className={`
+             text-[10px] font-bold px-2 py-1 rounded text-center mb-2 animate-pulse
+             ${solverStatus === 'CHECKING' ? 'bg-blue-500 text-white' : ''}
+             ${solverStatus === 'SOLVABLE' ? 'bg-green-500 text-white' : ''}
+             ${solverStatus === 'UNSOLVABLE' ? 'bg-red-500 text-white' : ''}
+             ${solverStatus === 'UNKNOWN' ? 'bg-gray-500 text-white' : ''}
+           `}>
+             {solverStatus === 'CHECKING' && 'ANALYZING...'}
+             {solverStatus === 'SOLVABLE' && 'SOLVABLE'}
+             {solverStatus === 'UNSOLVABLE' && 'UNSOLVABLE'}
+             {solverStatus === 'UNKNOWN' && 'COMPLEX'}
+           </div>
+        )}
+
         {/* Action Buttons */}
         <div className="flex items-center landscape:flex-col gap-3 landscape:w-full">
+          <button 
+             onClick={handleCheckSolvability}
+             disabled={solverStatus === 'CHECKING' || game.gameWon}
+             className="p-2 md:p-3 bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-30 transition-colors landscape:w-full flex justify-center"
+             title="Check Solvability"
+           >
+             <SolverIcon />
+           </button>
+
           <button 
             onClick={undo}
             disabled={history.length === 0}
