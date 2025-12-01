@@ -213,6 +213,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCardDoubleClick = (pileType: PileType, pileIndex: number, cardIndex?: number) => {
+    const source: Position = { pileType, pileIndex, cardIndex };
+    
+    // 1. Try moving to Foundations
+    for (let i = 0; i < 4; i++) {
+      if (attemptMove(source, 'foundation', i)) {
+        setSelected(null);
+        return;
+      }
+    }
+
+    // 2. Try moving to Tableau
+    for (let i = 0; i < 7; i++) {
+      if (pileType === 'tableau' && pileIndex === i) continue;
+      if (attemptMove(source, 'tableau', i)) {
+        setSelected(null);
+        return;
+      }
+    }
+  };
+
   // --- Drag and Drop Handlers ---
 
   const handleDragStart = (e: React.DragEvent, position: Position) => {
@@ -368,6 +389,7 @@ const App: React.FC = () => {
                       <Card 
                           card={card} 
                           onClick={isTop ? () => handleCardClick('waste', 0) : undefined}
+                          onDoubleClick={isTop ? () => handleCardDoubleClick('waste', 0) : undefined}
                           isSelected={isTop && selected?.pileType === 'waste'}
                           draggable={isTop}
                           onDragStart={(e) => isTop && handleDragStart(e, { pileType: 'waste', pileIndex: 0 })}
@@ -395,6 +417,7 @@ const App: React.FC = () => {
                   <Card 
                     card={pile[pile.length - 1]}
                     onClick={() => handleCardClick('foundation', index)}
+                    onDoubleClick={() => handleCardDoubleClick('foundation', index)}
                     isSelected={selected?.pileType === 'foundation' && selected.pileIndex === index}
                     draggable={true}
                     onDragStart={(e) => handleDragStart(e, { pileType: 'foundation', pileIndex: index })}
@@ -444,6 +467,7 @@ const App: React.FC = () => {
                             card={card}
                             isSelected={isSelected}
                             onClick={() => handleCardClick('tableau', pileIndex, cardIndex)}
+                            onDoubleClick={() => handleCardDoubleClick('tableau', pileIndex, cardIndex)}
                             draggable={card.faceUp}
                             onDragStart={(e) => card.faceUp && handleDragStart(e, { pileType: 'tableau', pileIndex: pileIndex, cardIndex: cardIndex })}
                           />

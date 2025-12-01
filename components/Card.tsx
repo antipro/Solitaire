@@ -5,6 +5,7 @@ import { SUIT_SYMBOLS, SUIT_COLORS, RANK_LABELS } from '../constants';
 interface CardProps {
   card: CardType;
   onClick?: () => void;
+  onDoubleClick?: () => void;
   isSelected?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -86,6 +87,7 @@ const CourtCardVisual = ({ rank, colorClass }: { rank: Rank; colorClass: string 
 export const Card: React.FC<CardProps> = ({ 
   card, 
   onClick, 
+  onDoubleClick,
   isSelected, 
   className = '', 
   style,
@@ -96,6 +98,7 @@ export const Card: React.FC<CardProps> = ({
     return (
       <div
         onClick={onClick}
+        onDoubleClick={onDoubleClick}
         style={style}
         className={`relative w-full h-full rounded-lg bg-blue-800 border-2 border-white shadow-md ${className} 
         bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]`}
@@ -115,6 +118,7 @@ export const Card: React.FC<CardProps> = ({
       draggable={draggable}
       onDragStart={onDragStart}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       style={style}
       className={`
         relative w-full h-full bg-white rounded-lg shadow-md select-none
