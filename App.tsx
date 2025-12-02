@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from './components/Card';
 import { EmptyPile } from './components/EmptyPile';
 import { GameState, Position, CardType, Rank, Suit, Difficulty, PileType } from './types';
@@ -25,21 +25,27 @@ const SolverIcon = () => (
   </svg>
 );
 
+const FastForwardIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 md:w-6 md:h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8.688c0-.864.933-1.405 1.683-.977l7.108 4.062a1.125 1.125 0 010 1.953l-7.108 4.062A1.125 1.125 0 013 16.81V8.688zM12.75 8.688c0-.864.933-1.405 1.683-.977l7.108 4.062a1.125 1.125 0 010 1.953l-7.108 4.062a1.125 1.125 0 01-1.683-.977V8.688z" />
+  </svg>
+);
+
 const App: React.FC = () => {
   const [game, setGame] = useState<GameState>(() => initGame('EASY'));
   const [selected, setSelected] = useState<Position | null>(null);
   const [history, setHistory] = useState<GameState[]>([]);
   const [solverStatus, setSolverStatus] = useState<'IDLE' | 'CHECKING' | 'SOLVABLE' | 'UNSOLVABLE' | 'UNKNOWN'>('IDLE');
+  const [isAutoFinishing, setIsAutoFinishing] = useState(false);
 
   const saveHistory = () => {
     const newState = JSON.parse(JSON.stringify(game));
     setHistory(prev => [...prev.slice(-19), newState]);
-    // Reset solver status when state changes
     setSolverStatus('IDLE');
   };
 
   const undo = () => {
-    if (history.length === 0) return;
+    if (history.length === 0 || isAutoFinishing) return;
     const previousState = history[history.length - 1];
     setGame(previousState);
     setHistory(prev => prev.slice(0, -1));
@@ -52,16 +58,18 @@ const App: React.FC = () => {
     setSelected(null);
     setHistory([]);
     setSolverStatus('IDLE');
+    setIsAutoFinishing(false);
   };
 
   const handleCheckSolvability = async () => {
-    if (game.gameWon) return;
+    if (game.gameWon || isAutoFinishing) return;
     setSolverStatus('CHECKING');
     const result = await checkSolvability(game);
     setSolverStatus(result);
   };
 
   const handleDeckClick = () => {
+    if (isAutoFinishing) return;
     saveHistory();
     setGame(prev => {
       const newDeck = [...prev.deck];
@@ -131,7 +139,11 @@ const App: React.FC = () => {
     }
 
     if (isValid) {
-      saveHistory();
+      // For auto-finish, we don't need history for every single move to avoid spamming undo
+      if (!isAutoFinishing) {
+        saveHistory();
+      }
+      
       setGame(prev => {
         const newGame = { ...prev };
         
@@ -170,6 +182,8 @@ const App: React.FC = () => {
   };
 
   const handleCardClick = (pileType: 'waste' | 'foundation' | 'tableau', pileIndex: number, cardIndex?: number) => {
+    if (isAutoFinishing) return;
+    
     let clickedCard: CardType | undefined;
     if (pileType === 'waste') {
       if (game.waste.length === 0) return;
@@ -185,13 +199,11 @@ const App: React.FC = () => {
     }
 
     if (selected) {
-      // Deselect if clicking same card
       if (selected.pileType === pileType && selected.pileIndex === pileIndex && selected.cardIndex === cardIndex) {
         setSelected(null);
         return;
       }
       
-      // Attempt move to clicked location
       if (pileType === 'foundation' || pileType === 'tableau') {
         const success = attemptMove(selected, pileType, pileIndex);
         if (success) {
@@ -200,7 +212,6 @@ const App: React.FC = () => {
         }
       }
       
-      // If move failed or clicked unrelated pile, change selection
       if (clickedCard && clickedCard.faceUp) {
          setSelected({ pileType, pileIndex, cardIndex });
       } else {
@@ -214,9 +225,10 @@ const App: React.FC = () => {
   };
 
   const handleCardDoubleClick = (pileType: PileType, pileIndex: number, cardIndex?: number) => {
+    if (isAutoFinishing) return;
+
     const source: Position = { pileType, pileIndex, cardIndex };
     
-    // 1. Try moving to Foundations
     for (let i = 0; i < 4; i++) {
       if (attemptMove(source, 'foundation', i)) {
         setSelected(null);
@@ -224,7 +236,6 @@ const App: React.FC = () => {
       }
     }
 
-    // 2. Try moving to Tableau
     for (let i = 0; i < 7; i++) {
       if (pileType === 'tableau' && pileIndex === i) continue;
       if (attemptMove(source, 'tableau', i)) {
@@ -234,11 +245,64 @@ const App: React.FC = () => {
     }
   };
 
+  // Auto Finish Logic
+  const canAutoFinish = !game.gameWon && 
+                        game.deck.length === 0 && 
+                        !game.tableau.some(pile => pile.some(card => !card.faceUp));
+
+  useEffect(() => {
+    if (isAutoFinishing) {
+      if (game.gameWon) {
+        setIsAutoFinishing(false);
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        let moveMade = false;
+        
+        // 1. Try moving from Tableau to Foundation
+        for (let i = 0; i < 7; i++) {
+          if (game.tableau[i].length > 0) {
+            const card = game.tableau[i][game.tableau[i].length - 1];
+            // Only move if it's the right card for foundation
+            const source: Position = { pileType: 'tableau', pileIndex: i, cardIndex: game.tableau[i].length - 1 };
+            for (let f = 0; f < 4; f++) {
+               // Checking isValidFoundationMove directly would be faster but attemptMove is safer
+               if (attemptMove(source, 'foundation', f)) {
+                 moveMade = true;
+                 break;
+               }
+            }
+          }
+          if (moveMade) break;
+        }
+
+        // 2. Try moving from Waste to Foundation
+        if (!moveMade && game.waste.length > 0) {
+           const source: Position = { pileType: 'waste', pileIndex: 0 };
+           for (let f = 0; f < 4; f++) {
+             if (attemptMove(source, 'foundation', f)) {
+               moveMade = true;
+               break;
+             }
+           }
+        }
+
+        if (!moveMade) {
+          // If we are stuck in auto-finish (should not happen if all cards revealed), stop.
+          setIsAutoFinishing(false);
+        }
+      }, 50); // Speed of auto-moves
+
+      return () => clearTimeout(timer);
+    }
+  }, [isAutoFinishing, game]);
+
   // --- Drag and Drop Handlers ---
 
   const handleDragStart = (e: React.DragEvent, position: Position) => {
+    if (isAutoFinishing) return;
     e.stopPropagation();
-    // Encode position data
     e.dataTransfer.setData('application/json', JSON.stringify(position));
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -249,6 +313,7 @@ const App: React.FC = () => {
   };
 
   const handleDrop = (e: React.DragEvent, targetPileType: PileType, targetPileIndex: number) => {
+    if (isAutoFinishing) return;
     e.preventDefault();
     e.stopPropagation();
     const data = e.dataTransfer.getData('application/json');
@@ -288,7 +353,8 @@ const App: React.FC = () => {
           <select 
             value={game.difficulty}
             onChange={(e) => handleNewGame(e.target.value as Difficulty)}
-            className="bg-green-800 text-white text-xs rounded px-2 py-1 border border-green-600 outline-none focus:ring-1 focus:ring-yellow-400 cursor-pointer w-full"
+            disabled={isAutoFinishing}
+            className="bg-green-800 text-white text-xs rounded px-2 py-1 border border-green-600 outline-none focus:ring-1 focus:ring-yellow-400 cursor-pointer w-full disabled:opacity-50"
           >
             <option value="EASY">EASY (1)</option>
             <option value="HARD">HARD (3)</option>
@@ -325,9 +391,21 @@ const App: React.FC = () => {
 
         {/* Action Buttons */}
         <div className="flex items-center landscape:flex-col gap-3 landscape:w-full">
+           
+           {canAutoFinish && (
+             <button 
+               onClick={() => setIsAutoFinishing(true)}
+               disabled={isAutoFinishing}
+               className="p-2 md:p-3 bg-yellow-500 rounded-lg hover:bg-yellow-400 disabled:opacity-30 transition-colors landscape:w-full flex justify-center animate-bounce"
+               title="Auto Finish"
+             >
+               <FastForwardIcon />
+             </button>
+           )}
+
           <button 
              onClick={handleCheckSolvability}
-             disabled={solverStatus === 'CHECKING' || game.gameWon}
+             disabled={solverStatus === 'CHECKING' || game.gameWon || isAutoFinishing}
              className="p-2 md:p-3 bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-30 transition-colors landscape:w-full flex justify-center"
              title="Check Solvability"
            >
@@ -336,7 +414,7 @@ const App: React.FC = () => {
 
           <button 
             onClick={undo}
-            disabled={history.length === 0}
+            disabled={history.length === 0 || isAutoFinishing}
             className="p-2 md:p-3 bg-white/10 rounded-lg hover:bg-white/20 disabled:opacity-30 transition-colors landscape:w-full flex justify-center"
             title="Undo"
           >
@@ -345,7 +423,8 @@ const App: React.FC = () => {
 
           <button 
             onClick={() => handleNewGame()}
-            className="p-2 md:p-3 bg-green-700 rounded-lg hover:bg-green-600 transition-colors shadow-sm landscape:w-full flex justify-center"
+            disabled={isAutoFinishing}
+            className="p-2 md:p-3 bg-green-700 rounded-lg hover:bg-green-600 transition-colors shadow-sm landscape:w-full flex justify-center disabled:opacity-50"
             title="Restart"
           >
             <ReloadIcon />
@@ -391,7 +470,7 @@ const App: React.FC = () => {
                           onClick={isTop ? () => handleCardClick('waste', 0) : undefined}
                           onDoubleClick={isTop ? () => handleCardDoubleClick('waste', 0) : undefined}
                           isSelected={isTop && selected?.pileType === 'waste'}
-                          draggable={isTop}
+                          draggable={isTop && !isAutoFinishing}
                           onDragStart={(e) => isTop && handleDragStart(e, { pileType: 'waste', pileIndex: 0 })}
                         />
                     </div>
@@ -419,7 +498,7 @@ const App: React.FC = () => {
                     onClick={() => handleCardClick('foundation', index)}
                     onDoubleClick={() => handleCardDoubleClick('foundation', index)}
                     isSelected={selected?.pileType === 'foundation' && selected.pileIndex === index}
-                    draggable={true}
+                    draggable={!isAutoFinishing}
                     onDragStart={(e) => handleDragStart(e, { pileType: 'foundation', pileIndex: index })}
                   />
                 ) : (
@@ -468,7 +547,7 @@ const App: React.FC = () => {
                             isSelected={isSelected}
                             onClick={() => handleCardClick('tableau', pileIndex, cardIndex)}
                             onDoubleClick={() => handleCardDoubleClick('tableau', pileIndex, cardIndex)}
-                            draggable={card.faceUp}
+                            draggable={card.faceUp && !isAutoFinishing}
                             onDragStart={(e) => card.faceUp && handleDragStart(e, { pileType: 'tableau', pileIndex: pileIndex, cardIndex: cardIndex })}
                           />
                         </div>
